@@ -4,8 +4,10 @@ import threading
 from re import split
 from socket import *
 from struct import *
-from Model import Config
+from Model import SocketManager
+from Model import Task
 from Model import Cracker
+import time
 
 
 class Server:
@@ -14,102 +16,138 @@ class Server:
     d_clients = {}
     list_threads = []
     server_socket = None
+    curr_server_address = ''
 
-    def __init__(self, hostname=gethostname(), port=3117, server_id=0):
-        self.ip_broadcast = '255.255.255.255'
-        self.ip_unicast = ''
-        self.server_hostname = hostname
-        self.server_port = port
-        self.hash_lib = hashlib.sha1()
+    def __init__(self, socket_manager, server_id=0):
+        self._socket_manager = socket_manager
         self.server_id = server_id
-        self.config = Config.Config()
-        self.config.set_team_name()
-        self.config.set_hash_input('422ab519eac585ef4ab0769be5c019754f95e8dc')
-        self.config.set_hash_length('6')
-        self.cracker = Cracker.Cracker()
+        self.task = Task.Task()
 
     def init_servers(self):
+        self.init_sockets()
+        self.offer()
+
+    def init_sockets(self):
         self.server_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        # self.server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
         self.server_socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
-        # self.server_socket.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
         self.server_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        self.server_socket.bind((self.server_hostname, self.server_port))
+        self.server_socket.bind((self._socket_manager.server_hostname, int(self._socket_manager.server_port)))
+        self.curr_server_address = self._socket_manager.server_hostname + ':' + self._socket_manager.server_port
+
+        self.server_socket.settimeout(15)  # Set a timeout so the socket does not block when trying to receive data.
+
+        # self._socket_manager.set_curr_server_address(self.curr_server_address)
+        # self.server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+        # self.server_socket.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
         # self.server_socket.listen(5)  # queue up to 5 connection requests before refusing outside connections
         # self.server_socket.listen(1)
-        # self.server_socket.settimeout(0.2)  # Set a timeout so the socket does not block when trying to receive data.
         print('Server No. ', self.server_id, ': Socket is listening')
-        self.d_clients = {}
-        flag = self.offer()  # callback function
-        # this_server_address = self.offer_with_accept()  # callback function
-        self.print_dict()
-        print('Server: ', self.server_id, 'Done offering with client')
-        if flag:
-            self.ack()
-        else:
-            print('Server cant start ack')
 
     def offer(self):
         while True:
             try:
-                print('(offer) Server No. ', self.server_id, ': Still waiting for a client DISCOVER')
-                self.mutex_clients.acquire()  # lock acquired to avoid client collision
-                s_stream, client_address = self.server_socket.recvfrom(2048)  # callback function
-                message = self.config.decode_message(s_stream)
-                # print('(offer) Server No. ', self.server_id, ': Received a message: ', message)
-                print('(offer) Server No. ', self.server_id, ': Received a message from a client')
-                d_message = self.config.get_decoded_message_to_dict(message)
-                # self.config.print_dict(d_message)
-                # if message == self.config.discover:
-                if d_message['transfer_type'] == self.config.discover:
+                # self.mutex_clients.acquire()  # lock acquired to avoid client collision
+                print('(offer) Server No. ', self.server_id, ': Waiting for a client DISCOVER')
+                try:
+                    s_stream, client_address = self.server_socket.recvfrom(2048)  # callback function
+                except timeout:
+                    print('(offer) Server No. ', self.server_id, ' Server waited too long for client. Try again Later...')
+                    print('Server nack')
+                    # self.mutex_clients.release()
+                    break
+                # self.mutex_clients.release()
+                message = self._socket_manager.decode_message(s_stream)
+                d_message = self._socket_manager.get_decoded_message_to_dict(message)
+                print('(offer) Server No. ', self.server_id, ': Received a message from a client: ' + d_message['transfer_type'])
+                if d_message['transfer_type'] == self._socket_manager.discover:
                     self.d_clients[str(self.server_id)] = client_address[1]
-                    # server_info = self.tuple_to_string(self.server_socket.getsockname())
-                    # message = self.config.encode_message(server_info)
-                    message = self.config.get_data_ready_to_transfer(self.config.offer)
+                    message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.offer)
                     self.server_socket.sendto(message, client_address)
-                    self.mutex_clients.release()
-                    return True
+                    self.ack()
+                    break
                 else:
                     print('(offer) Server still waiting for client request')
-                    self.mutex_clients.release()
             except Exception as e:
-                # self.mutex_clients.release()  # lock released on exit
                 print('oops offer exception: ', e)
-                # self.server_socket.close()
-                # client_address.close()
-                return False
+                print('Server nack')
+                break
 
     def ack(self):
         while True:
             try:
-                print('(ack) Server No. ', self.server_id, ': Still waiting for a client REQUEST')
-                self.mutex_clients.acquire()
-                s_stream, client_address = self.server_socket.recvfrom(2048)  # any available port in the client
-                message = self.config.decode_message(s_stream)
-                self.config.set_original_string_start('aaa')
-                self.config.set_original_string_end('zzz')
-                d_message = self.config.get_decoded_message_to_dict(message)
+                print('(ack) Server No. ', self.server_id, ': Waiting for a client REQUEST')
+                try:
+                    time.sleep(self.server_id)
+                    # self.mutex_clients.acquire()
+                    s_stream, client_address = self.server_socket.recvfrom(2048)  # any available port in the client
+                    # self.mutex_clients.release()
+                except timeout:
+                    print('(ack) Server No. ', self.server_id, ' Server waited too long for client. Try again Later...')
+                    print('Server nack')
+                    # self.mutex_clients.release()
+                    break
+                # self.mutex_clients.release()
+                message = self._socket_manager.decode_message(s_stream)
+                d_message = self._socket_manager.get_decoded_message_to_dict(message)
                 print('(ack) Server No. ', self.server_id, ': Received a message from a client')
-                # if message:
-                if d_message['transfer_type'] == self.config.request:
-                    # s_hex = self.decode_hash(message, 'aaazzz')
-                    # ans = self.config.encode_message(s_hex)
-                    print('(ack) Server found hash')
-                    ans = self.config.encode_message('ans harta barta')
-                    self.server_socket.sendto(ans, client_address)
-                    self.mutex_clients.release()
+                if d_message['transfer_type'] == self._socket_manager.request:
+                    s_start = d_message['original_string_start']
+                    s_start = s_start.replace(" ", "")
+                    print('Range start: ' + s_start)
+                    print('Range start length is: ' + str(len(s_start)))
+                    s_end = d_message['original_string_end']
+                    s_end = s_end.replace(" ", "")
+                    print('Range end: ' + s_end)
+                    print('Range end length is: ' + str(len(s_end)))
+                    print('(ack) Server No. ', self.server_id, ': Beginning Search')
+                    result = self.find_string(s_start, s_end, self._socket_manager.hash_input)
+                    if result is None:
+                        print('(nack) Server No. ', self.server_id, 'Server NOT found hash')
+                        message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.negative_acknowledge)
+                        self.server_socket.sendto(message, client_address)
+                    else:
+                        print('(ack) Server No. ', self.server_id, 'Server found hash')
+                        self._socket_manager.set_original_string_start(result)
+                        # real_ans = 'tashaf'
+                        message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.acknowledge)
+                        self.server_socket.sendto(message, client_address)
                     self.server_socket.close()
                     # client_address.close()
                     return True
                 else:
                     print('Server still waiting for client request')
-                    self.mutex_clients.release()
             except Exception as e:
                 print('oops ack exception: ', e)
                 # self.mutex_clients.release()
                 # self.server_socket.close()
                 # client_address.close()
                 return False
+
+    def find_string(self, start_string, end_string, hash_input):
+        print('hash input is: ' + hash_input)
+        ranger = Cracker.Cracker(start_string, end_string)
+        strings = list(ranger.generate_all_from_to_of_len())
+        for string in strings:
+            # string = string.encode('utf-8')
+            string_to_hash = self.sha1(string)
+            # print('string to hash is: ' + string_to_hash)
+            if string_to_hash == hash_input:
+                print('hash found!!! ' + string)
+                return string
+            # if hashlib.sha1(string) == hash_input:
+            #     print('hash found!!! ' + string)
+            #     return string
+        return None
+
+    def sha1(self, string_to_check):
+        # encoding str using encode()
+        # then sending to SHA1()
+        # result = hashlib.sha1(str.encode('utf-8')).digest()
+        result = hashlib.sha1(string_to_check.encode('utf-8')).hexdigest()
+        # print the equivalent hexadecimal value
+        # print(result.hexdigest())
+        # return result.decode('utf-8')
+        return result
 
     def tuple_to_string(self, tup):
         s_host = ''.join(tup[0])
@@ -125,10 +163,10 @@ class Server:
         for key, value in self.d_clients.items():
             print('-Server Map- Server No.: ', key, ', Client No.: ', value)
 
-    def init_threads(self, count=2):
+    def init_server_threads(self, count=2):
         for i in range(count):
             try:
-                curr_thread = threading.Thread(target=self.threaded, args=(self.server_hostname, self.server_port, i+1))
+                curr_thread = threading.Thread(target=self.threaded, args=(i+1,))
                 self.list_threads.append(curr_thread)
                 # curr_thread.start()
             except Exception as e:
@@ -140,11 +178,9 @@ class Server:
         self.run_threads()
         self.terminate_threads()
 
-    def threaded(self, server_hostname, server_port, thread_count):
-        server = Server(server_hostname, server_port, thread_count)
+    def threaded(self, thread_count):
+        server = Server(self._socket_manager, thread_count)
         server.init_servers()
-        # flag = server.offer()
-        # flag = server.offer_with_accept()
 
     def run_threads(self):
         for thread in self.list_threads:
@@ -155,18 +191,19 @@ class Server:
             thread.join()
 
 
-# with threads #
-server_manager = Server()
-server_manager.init_threads(2)
-
-# no threads #
-"""
-server_hostname = gethostname()
-server_port = 3117
-server = Server(server_hostname, server_port, 1)
-flag = server.offer()
-if flag:
-    server.ack()
-else:
-    print('Server cant start ack')
-"""
+if __name__ == '__main__':
+    team_name = 'cyber_cyber_cyber_cyber_cyber!!!'
+    # hash_input = 'e0c9035898dd52fc65c41454cec9c4d2611bfb37'
+    # hash_length = '2'
+    # hash_input = '422ab519eac585ef4ab0769be5c019754f95e8dc'
+    # hash_length = '6'
+    # hash_input = 'a9993e364706816aba3e25717850c26c9cd0d89d'
+    # hash_length = '3'
+    hash_input = 'b60d121b438a380c343d5ec3c2037564b82ffef3'
+    hash_length = '3'
+    client_count = 1
+    server_count = 2
+    socket_manager = SocketManager.SocketManager()
+    socket_manager.set_configurations(team_name, hash_input, hash_length, server_count)
+    server_manager = Server(socket_manager)
+    server_manager.init_server_threads(server_count)

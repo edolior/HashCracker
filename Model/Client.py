@@ -2,75 +2,96 @@ import threading
 from re import split
 from socket import *
 from struct import *
-from Model import Config
+from Model import SocketManager
 from Model import Cracker
+import time
+from Model import Task
+# import socket.timeout as TimeoutException
 
 
 class Client:
 
     list_threads = []
     mutex_servers = threading.Lock()
+    d_servers = {}
+    client_socket = None
+    offer_count = 0
 
-    def __init__(self, server_hostname='255.255.255.255', server_port=3117):
-        self.client_id = 1
-        self.server_hostname = server_hostname
-        self.server_port = server_port
+    def __init__(self, ref_socket_manager, client_id=1):
+        self._socket_manager = ref_socket_manager
+        self.client_id = client_id
+        self.d_servers[self.client_id] = []
+        self.init_client_socket()
+        self.task = Task.Task()
+        # self.cracker = Cracker.Cracker()
+
+    def init_client_socket(self):
         self.client_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)  # gets a random port
-        # self.client_socket.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
         self.client_socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)  # Enable broadcasting mode
-        self.ip_broadcast = '255.255.255.255'
-        self.l_servers = []
-        self.config = Config.Config()
-        self.config.set_team_name()
-        self.config.set_hash_input('422ab519eac585ef4ab0769be5c019754f95e8dc')
-        self.config.set_hash_length('6')
-        self.cracker = Cracker.Cracker()
-        print('Client: Initialized')
 
-    def discover(self, count=1):
-        for i in range(count):
-            message = self.config.get_data_ready_to_transfer(self.config.discover)
-            # discover_byte_stream = self.config.encode_message(self.config.discover)
-            # self.client_socket.sendto(discover_byte_stream, (self.ip_broadcast, self.server_port))
-            self.client_socket.sendto(message, (self.ip_broadcast, self.server_port))
-            print('Client: Sent a DISCOVER')
-            ans_byte_stream, server_address = self.client_socket.recvfrom(2048)  # callback function
-            ans = self.config.decode_message(ans_byte_stream)
-            d_message = self.config.get_decoded_message_to_dict(ans)
-            # print('Client: Received OFFER from Server No. : ', ans)
-            # self.l_servers.append((str(self.client_id), ans, str(i+1)))
-            if d_message['transfer_type'] == self.config.offer:
-                self.l_servers.append((str(self.client_id), str(i + 1)))
-        self.print_list_of_tuples()
+        self.client_socket.settimeout(20)
+
+        # self.curr_server_address = self._socket_manager.server_hostname + ':' + self._socket_manager.server_port
+        # self.client_socket.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+
+    def discover(self):
+        message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.discover)
+        self.client_socket.sendto(message, (self._socket_manager.ip_broadcast, int(self._socket_manager.server_port)))
+        print('Client: Sent a DISCOVER')
+        while self.offer_count < self._socket_manager.server_count:
+            self.mutex_servers.acquire()
+            try:
+                ans_byte_stream, server_address = self.client_socket.recvfrom(2048)  # callback function
+            except timeout:
+                self.offer_count += 1
+                print("Client waited too long for server. Try again Later...")
+                continue
+            self.mutex_servers.release()
+            ans = self._socket_manager.decode_message(ans_byte_stream)
+            d_message = self._socket_manager.get_decoded_message_to_dict(ans)
+            self._socket_manager.print_dict(d_message)
+            if d_message['transfer_type'] == self._socket_manager.offer:
+                self.offer_count += 1
+                s_server_address = self._socket_manager.bind_server_address(server_address)
+                print('address: ' + s_server_address)
+                print('Client: Received OFFER from Server No. : ', server_address)
+                self.d_servers[self.client_id].append(s_server_address)
+        self._socket_manager.print_dict(self.d_servers)
+        self.request()
 
     def request(self):
-        # real_ans = 'tashaf'
-        # string_array = self.divide_two_domains(i_length, 2)
-        # message = self.config.encode_message(s_input)
-        # print('Client has sent a REQUEST with: ', s_input)
-        self.config.set_original_string_start('aaa')
-        self.config.set_original_string_end('zzz')
-        message = self.config.get_data_ready_to_transfer(self.config.request)
-        self.client_socket.sendto(message, (self.server_hostname, self.server_port))
-        reply, server_address = self.client_socket.recvfrom(2048)
-        ans = self.config.decode_message(reply)
-        d_message = self.config.get_decoded_message_to_dict(ans)
-        if d_message['transfer_type'] == self.config.acknowledge:
-            print('Client has got the answer! ', ans)
-        elif d_message['transfer_type'] == self.config.negative_acknowledge:
-            print('Client has NOT got the answer! ', ans)
+        for i in range(self.offer_count):
+            string_list = self._socket_manager.init_task(self._socket_manager.server_count)
+            print('client: hash input is: ' + self._socket_manager.hash_input)
+            self._socket_manager.print_list_of_strings(string_list)
+            s_range_start = string_list[i][0]
+            s_range_end = string_list[i][1]
+            self._socket_manager.set_original_string_start(s_range_start)
+            self._socket_manager.set_original_string_end(s_range_end)
+            curr_server_address = self.d_servers[self.client_id][i]
+            s_hostname = self._socket_manager.unbind_server_address(curr_server_address)[0]
+            s_port = self._socket_manager.unbind_server_address(curr_server_address)[1]
+            message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.request)
+            self.client_socket.sendto(message, (s_hostname, int(s_port)))
+            print('Client has sent a REQUEST No. ' + str(i+1) + ' to server: ' + curr_server_address)
+            time.sleep(3)
+        try:
+            reply, server_address = self.client_socket.recvfrom(2048)  # callback function
+        except timeout:
+            print("Client waited too long for server. Try again Later...")
+        ans = self._socket_manager.decode_message(reply)
+        d_message = self._socket_manager.get_decoded_message_to_dict(ans)
+        if d_message['transfer_type'] == self._socket_manager.acknowledge:
+            hash_ans = d_message['original_string_start']
+            print('Client has got the answer! ', hash_ans, 'from server: ' + curr_server_address)
+        elif d_message['transfer_type'] == self._socket_manager.negative_acknowledge:
+            print('Client has NOT got the answer from server: ' + curr_server_address)
         self.client_socket.close()
-
-    def print_list_of_tuples(self):
-        # for loc1, loc2, loc3 in self.l_servers:
-        #     print('-Client Map- Client No.: ' + loc1 + ', Server IP.: ' + loc2 + ', Server No.: ' + loc3)
-        for loc1, loc2 in self.l_servers:
-            print('-Client Map- Client No.: ' + loc2 + ', Server No.: ' + loc2)
 
     def init_threads(self, count=2):
         for i in range(count):
             try:
-                curr_thread = threading.Thread(target=self.threaded, args=(i + 1))
+                curr_thread = threading.Thread(target=self.threaded, args=(i+1,))
                 self.list_threads.append(curr_thread)
                 # curr_thread.start()
             except Exception as e:
@@ -97,15 +118,20 @@ class Client:
             thread.join()
 
 
-# with threads #
-# num_of_clients = 2
-# client_manager = Client()
-# client_manager.init_threads(num_of_clients)
-
-# no threads #
-print('Client initiated')
-num_of_servers = 2
-clnt = Client()
-clnt.discover(num_of_servers)
-clnt.request()
+if __name__ == '__main__':
+    team_name = 'cyber_cyber_cyber_cyber_cyber!!!'
+    # hash_input = '422ab519eac585ef4ab0769be5c019754f95e8dc'
+    # hash_length = '6'
+    # hash_input = 'e0c9035898dd52fc65c41454cec9c4d2611bfb37'
+    # hash_length = '2'
+    # hash_input = 'a9993e364706816aba3e25717850c26c9cd0d89d'
+    # hash_length = '3'
+    hash_input = 'b60d121b438a380c343d5ec3c2037564b82ffef3'
+    hash_length = '3'
+    client_count = 1
+    server_count = 2
+    socket_manager = SocketManager.SocketManager()
+    socket_manager.set_configurations(team_name, hash_input, hash_length, server_count)
+    client = Client(socket_manager, client_count)
+    client.discover()
 

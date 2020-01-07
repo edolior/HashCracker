@@ -1,7 +1,8 @@
 from Controller import Controller
+from View import View
 
 
 if __name__ == "__main__":
     ctrl = Controller.Controller()
-    ctrl.init_servers()
-    # ctrl.run_clients('ab34f', 5)
+    view = View.View(ctrl)
+    view.run_view()
