@@ -17,7 +17,14 @@ class Controller:
 
         self.mutex = threading.Lock()
         self.thread_list = []
-        self.team_name_length = 32
+        self.d_bytes_structure = {
+            'team_name': 32,
+            'transfer_type': 1,
+            'hash_input': 40,
+            'original_length': 1,
+            'original_string_start': 256,
+            'original_string_end': 256,
+        }
         self._socket_manager = SocketManager.SocketManager()
         # server_hostname = 'DESKTOP-TVPVUGN'
 
@@ -56,3 +63,20 @@ class Controller:
         client.discover(self._socket_manager.server_count)
         client.request()
 
+    def check_fill_stream(self, message, key_name):
+        other_length = len(message)
+        this_length = self.d_bytes_structure[key_name]
+        s_this_length = str(this_length)
+        if other_length < this_length:
+            s_format = "{:<" + s_this_length + "}"
+            corrected_message = s_format.format(message)
+            print('Input is short by ', this_length-other_length, ' characters')
+            print('Corrected to: ' + corrected_message)
+            return corrected_message
+        elif other_length > this_length:
+            corrected_message = message[0:this_length+1]
+            print('Input is long by ', other_length-this_length, ' characters')
+            print('Corrected to: ' + corrected_message)
+            return corrected_message
+        else:
+            return message

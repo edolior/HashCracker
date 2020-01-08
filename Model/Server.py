@@ -28,13 +28,17 @@ class Server:
         self.offer()
 
     def init_sockets(self):
+        # self.server_socket = socket(AF_INET, SOCK_DGRAM)
         self.server_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         self.server_socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
         self.server_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        self.server_socket.bind((self._socket_manager.server_hostname, int(self._socket_manager.server_port)))
+        # print(self._socket_manager.server_hostname)
+        self.server_socket.bind(('0.0.0.0', int(self._socket_manager.server_port)))
+        #self.server_socket.bind((self._socket_manager.server_hostname, int(self._socket_manager.server_port)))
+        # self.server_socket.bind(('', int(self._socket_manager.server_port)))
         self.curr_server_address = self._socket_manager.server_hostname + ':' + self._socket_manager.server_port
 
-        self.server_socket.settimeout(15)  # Set a timeout so the socket does not block when trying to receive data.
+        self.server_socket.settimeout(30)  # Set a timeout so the socket does not block when trying to receive data.
 
         # self._socket_manager.set_curr_server_address(self.curr_server_address)
         # self.server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
@@ -52,13 +56,20 @@ class Server:
                     s_stream, client_address = self.server_socket.recvfrom(2048)  # callback function
                 except timeout:
                     print('(offer) Server No. ', self.server_id, ' Server waited too long for client. Try again Later...')
-                    print('Server nack')
                     # self.mutex_clients.release()
                     break
                 # self.mutex_clients.release()
-                message = self._socket_manager.decode_message(s_stream)
-                d_message = self._socket_manager.get_decoded_message_to_dict(message)
-                print('(offer) Server No. ', self.server_id, ': Received a message from a client: ' + d_message['transfer_type'])
+                d_message = self._socket_manager.decode_message(s_stream)
+                self._socket_manager.set_team_name(d_message['team_name'])
+                self._socket_manager.set_hash_input(d_message['hash_input'])
+                self._socket_manager.set_hash_length(d_message['original_length'])
+                self._socket_manager.set_original_string_start(d_message['original_string_start'])
+                self._socket_manager.set_original_string_end(d_message['original_string_end'])
+
+                # d_message = self._socket_manager.get_decoded_message_to_dict(message)
+                # self._socket_manager.print_dict(d_message)
+
+                print('(offer) Server No. ', self.server_id, ': Received a message from a client: ', d_message['transfer_type'])
                 if d_message['transfer_type'] == self._socket_manager.discover:
                     self.d_clients[str(self.server_id)] = client_address[1]
                     message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.offer)
@@ -87,8 +98,8 @@ class Server:
                     # self.mutex_clients.release()
                     break
                 # self.mutex_clients.release()
-                message = self._socket_manager.decode_message(s_stream)
-                d_message = self._socket_manager.get_decoded_message_to_dict(message)
+                d_message = self._socket_manager.decode_message(s_stream)
+                # d_message = self._socket_manager.get_decoded_message_to_dict(message)
                 print('(ack) Server No. ', self.server_id, ': Received a message from a client')
                 if d_message['transfer_type'] == self._socket_manager.request:
                     s_start = d_message['original_string_start']
@@ -106,6 +117,7 @@ class Server:
                         message = self._socket_manager.get_data_ready_to_transfer(self._socket_manager.negative_acknowledge)
                         self.server_socket.sendto(message, client_address)
                     else:
+                        time.sleep(3)
                         print('(ack) Server No. ', self.server_id, 'Server found hash')
                         self._socket_manager.set_original_string_start(result)
                         # real_ans = 'tashaf'
@@ -154,11 +166,6 @@ class Server:
         s_port = ''.join(str(tup[1]))
         return s_host + ':' + s_port
 
-    def decode_hash(self, s_coded_value, range):
-        decoded_value = 'Here we calculate'
-        print(decoded_value)
-        return decoded_value
-
     def print_dict(self):
         for key, value in self.d_clients.items():
             print('-Server Map- Server No.: ', key, ', Client No.: ', value)
@@ -192,18 +199,34 @@ class Server:
 
 
 if __name__ == '__main__':
-    team_name = 'cyber_cyber_cyber_cyber_cyber!!!'
-    # hash_input = 'e0c9035898dd52fc65c41454cec9c4d2611bfb37'
-    # hash_length = '2'
+
+    socket_manager = SocketManager.SocketManager()
+
+    # team_name = socket_manager.user_input_team_name()
+    # hash_input = socket_manager.user_input_hash(team_name)
+    # hash_length = socket_manager.user_input_hash_length()
+    #
+    # print('Amount of servers?')
+    # server_count = input()
+    #
+    # print('Amount of clients?')
+    # client_count = input()
+
+    # team_name = 'cyber_cyber_cyber_cyber_cyber!!!'
     # hash_input = '422ab519eac585ef4ab0769be5c019754f95e8dc'
     # hash_length = '6'
+    # hash_input = 'e0c9035898dd52fc65c41454cec9c4d2611bfb37'
+    # hash_length = '2'
     # hash_input = 'a9993e364706816aba3e25717850c26c9cd0d89d'
     # hash_length = '3'
-    hash_input = 'b60d121b438a380c343d5ec3c2037564b82ffef3'
-    hash_length = '3'
-    client_count = 1
+
+    # hash_input = 'b60d121b438a380c343d5ec3c2037564b82ffef3'
+    # hash_length = 3
+    # hash_input = ''
+    # hash_length = 0
+
     server_count = 2
-    socket_manager = SocketManager.SocketManager()
-    socket_manager.set_configurations(team_name, hash_input, hash_length, server_count)
+
+    # socket_manager.set_configurations(team_name, hash_input, hash_length, server_count)
     server_manager = Server(socket_manager)
     server_manager.init_server_threads(server_count)
