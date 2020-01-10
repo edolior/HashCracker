@@ -4,7 +4,7 @@ import time
 ALPHABET_SIZE = 26
 
 
-class Task:
+class Ranger:
 
     def divide_to_domains(self, original_len, num_of_servers):
         """
@@ -64,10 +64,3 @@ class Task:
             str_val = 'a' + str_val
             length -= 1
         return str_val
-
-# if __name__ == '__main__':
-#     t = time.time()
-#     task = Task()
-#     ans = task.divide_to_domains(53, 20)
-#     t = time.time() - t
-#     print(t)

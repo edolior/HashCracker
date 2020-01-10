@@ -25,9 +25,3 @@ class Cracker:
                 self._make_all_chars_after_index_into_a(tmp, i)
             yield "".join(tmp)
         yield "".join(last)
-
-
-# if __name__ == '__main__':
-#     test = Cracker('fff', 'zdv')
-#     for string in test.generate_all_from_to_of_len():
-#         print(string)
